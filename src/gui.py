@@ -97,7 +97,8 @@ class AutomationApp(tk.Tk):
                 elif kind == "status":
                     self._status.set(str(payload))
                 elif kind == "prompt":
-                    messagebox.showinfo(WINDOW_TITLE, str(payload))
+                    text = str(payload)
+                    self._pinned(lambda: messagebox.showinfo(WINDOW_TITLE, text, parent=self))
                     self._prompt_answered.set()
                 elif kind == "done":
                     self._finish(payload)  # type: ignore[arg-type]
@@ -106,11 +107,12 @@ class AutomationApp(tk.Tk):
         self.after(POLL_INTERVAL_MS, self._drain_messages)
 
     def _finish(self, outcome: Outcome) -> None:
-        """Announce the result loudly.
+        """Announce the result once, without interrupting earlier.
 
-        The intended way to use this tool is to press the button and walk away,
-        so a line of text in the log box is not enough: the window is raised,
-        the title changes so the taskbar shows the state, and a dialog appears.
+        Nothing happens while the run is in progress: no dialog, no window
+        raised, no focus taken. The closing dialog is the single interruption,
+        and it is deliberate — the whole point of the tool is that the operator
+        presses one button and walks away.
         """
         self._append("")
         self._append(outcome.headline)
@@ -121,15 +123,33 @@ class AutomationApp(tk.Tk):
         self._status.set("完成" if outcome.ok else "需要处理")
         self.title(f"{WINDOW_TITLE} — {'完成' if outcome.ok else '有失败项'}")
 
-        self.deiconify()
-        self.lift()
-        self.focus_force()
-
         message = outcome.headline + (f"\n\n{outcome.detail}" if outcome.detail else "")
-        if outcome.ok:
-            messagebox.showinfo(WINDOW_TITLE, message)
-        else:
-            messagebox.showwarning(WINDOW_TITLE, message)
+        self._notify(message, warning=not outcome.ok)
+
+    def _notify(self, message: str, *, warning: bool) -> None:
+        """Announce the outcome, on top of whatever else is on screen."""
+        dialog = messagebox.showwarning if warning else messagebox.showinfo
+        self._pinned(lambda: dialog(WINDOW_TITLE, message, parent=self))
+
+    def _pinned(self, show) -> None:
+        """Run a dialog with the window pinned for exactly as long as it is up.
+
+        A notification buried behind a maximised window is not a notification,
+        and a question nobody can see is worse: the worker stays blocked on it.
+        The window is unpinned the moment the dialog closes, so it never
+        lingers above the operator's other work.
+        """
+        try:
+            self.attributes("-topmost", True)
+        except tk.TclError:  # platform without the attribute — show it anyway
+            pass
+        try:
+            show()
+        finally:
+            try:
+                self.attributes("-topmost", False)
+            except tk.TclError:
+                pass
 
     def _prompt(self, message: str) -> None:
         """Block the worker until the operator dismisses a dialog."""

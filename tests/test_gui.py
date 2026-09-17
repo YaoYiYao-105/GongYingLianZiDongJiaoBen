@@ -68,3 +68,57 @@ def test_buttons_are_usable_again_after_a_run(app):
 
     assert str(app._commit_button["state"]) == "normal"
     assert app._is_busy() is False
+
+
+def test_finishing_never_steals_focus(app, monkeypatch):
+    """The run is meant to be walked away from; it must not grab the screen.
+
+    Only the closing dialog is allowed to interrupt, and it is a dialog the
+    operator already expects. Raising the window, restoring it from the
+    taskbar or forcing focus would yank someone out of whatever they moved on
+    to, so those calls are banned outright.
+    """
+
+    def banned(name):
+        def explode(*_args, **_kwargs):
+            pytest.fail(f"{name}() was called while finishing a run")
+
+        return explode
+
+    for name in ("deiconify", "lift", "focus_force"):
+        monkeypatch.setattr(gui.AutomationApp, name, banned(name))
+
+    app._finish(gui.Outcome(ok=True, headline="全部完成", detail="订单 3，填写 12 行"))
+
+    assert app._dialogs, "the closing dialog is the one interruption allowed"
+
+
+def test_the_closing_dialog_is_on_top_but_the_window_does_not_stay_there(app, monkeypatch):
+    """The result has to be visible, yet the app must not camp above other work."""
+    seen: list[bool] = []
+
+    def pinned() -> bool:
+        return str(app.attributes("-topmost")).strip().lower() in {"1", "true"}
+
+    monkeypatch.setattr(
+        gui.messagebox,
+        "showinfo",
+        lambda title, message, **kw: seen.append(pinned()),
+    )
+
+    app._finish(gui.Outcome(ok=True, headline="全部完成"))
+
+    assert seen == [True], "the dialog was not pinned, so a maximised window would hide it"
+    assert not pinned(), "the window stayed on top after the dialog closed"
+
+
+def test_a_question_the_operator_cannot_see_still_gets_answered(app):
+    """Login asks the operator to go and sign in; that dialog must be reachable.
+
+    It also blocks the worker until dismissed, so one hidden behind the browser
+    window would look like a hang rather than a question.
+    """
+    app._messages.put(("prompt", "请在浏览器窗口中完成登录，完成后点「确定」。"))
+    app._drain_messages()
+
+    assert app._dialogs and "完成登录" in app._dialogs[0][1]

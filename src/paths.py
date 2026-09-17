@@ -14,7 +14,15 @@ APP_NAME = "supplier-portal-automation"
 
 
 def app_data_dir() -> Path:
-    """Per-user writable directory for profiles, state and run artifacts."""
+    """Per-user writable directory for profiles, state and run artifacts.
+
+    ``SUPPLIER_AUTOMATION_HOME`` overrides the location, which keeps demos and
+    tests away from a real profile directory and its login cookies.
+    """
+    override = os.environ.get("SUPPLIER_AUTOMATION_HOME")
+    if override:
+        return Path(override).expanduser()
+
     if sys.platform == "win32":
         base = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
     elif sys.platform == "darwin":

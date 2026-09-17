@@ -20,6 +20,9 @@ SELECTOR_FILE_NAME = "selectors.json"
 #: Selector expression kinds understood by :func:`parse_locator_expression`.
 SUPPORTED_KINDS = frozenset({"css", "text", "placeholder", "label", "role"})
 
+#: Keywords allowed inside role expressions, e.g. ``role=button[name='查询']``.
+ROLE_KEYWORDS = frozenset({"name", "exact"})
+
 
 @dataclass
 class Target:
@@ -54,7 +57,7 @@ def _default_selectors() -> dict[str, Any]:
                 ],
                 "order_links": [
                     "css=a[href*='order']",
-                    "text=/^\\d{6,}$/",
+                    "css=td a",
                 ],
             },
             "order_flow": {
@@ -62,7 +65,7 @@ def _default_selectors() -> dict[str, Any]:
                     "css=td",
                 ],
                 "approval_link": [
-                    "role=link[name*='订货审批单']",
+                    "role=link[name='订货审批单']",
                     "text=订货审批单",
                 ],
             },
@@ -145,7 +148,13 @@ def parse_locator_expression(expression: str) -> Callable[[Any], Any]:
         if rest.endswith("]"):
             for pair in rest[:-1].split(","):
                 key, _, val = pair.partition("=")
-                role_kwargs[key.strip()] = val.strip().strip("'\"")
+                key = key.strip()
+                if key not in ROLE_KEYWORDS:
+                    raise ValueError(
+                        f"unsupported role keyword {key!r} in {expression!r}; "
+                        f"expected one of {sorted(ROLE_KEYWORDS)}"
+                    )
+                role_kwargs[key] = val.strip().strip("'\"")
 
     def build(scope: Any) -> Any:
         if kind == "css":

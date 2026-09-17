@@ -52,6 +52,28 @@ python main.py run --commit --limit 1        # 只处理第一个订单
 python main.py run --commit --order 1234567  # 只处理指定订单
 ```
 
+### 本地演示（不需要真实后台）
+
+仓库自带一个模拟后台，可以在没有供应商账号的情况下完整跑通整条链路：
+
+```bash
+.venv/bin/python scripts/demo_local.py            # 试运行，不写入
+.venv/bin/python scripts/demo_local.py --commit   # 实际写入模拟后台
+```
+
+它会启动一个复现了四个页面行为的本地 HTTP 服务，把定位配置指向它，然后运行**和正式版本完全相同的 workflow**。执行后会打印模拟后台收到的内容，用来确认结果：
+
+```
+mock portal state after the run:
+  260917001: ['1', '1', '1', '1']
+  260917002: ['1', '1', '1', '1']
+  260917003: ['1', '1', '1', '1']
+  submissions received: 3
+RESULT: PASS
+```
+
+这是在不接触生产后台的前提下，验证"能不能真的把事做完"的最好方式。
+
 ---
 
 ## 为什么要先跑一次 `calibrate`
@@ -187,7 +209,21 @@ git tag v0.1.0 && git push origin v0.1.0
 .venv/bin/python -m pytest tests -q
 ```
 
-测试覆盖定位器表达式解析、行遍历逻辑、断点续跑日志和汇总统计。行遍历和选择器逻辑用假的 Playwright 对象验证，因此**不需要启动浏览器**就能跑完整测试套件。
+```bash
+.venv/bin/pip install pytest
+.venv/bin/python -m playwright install chromium   # 仅端到端测试需要
+.venv/bin/python -m pytest tests -q
+```
+
+测试分三层：
+
+| 文件 | 覆盖内容 | 是否需要浏览器 |
+| --- | --- | --- |
+| `test_config.py` / `test_state.py` / `test_report.py` / `test_box_code.py` | 定位表达式解析、行遍历、断点续跑、汇总统计 | 否，用假的 Playwright 对象 |
+| `test_workflow.py` | 完整编排流程（状态机替身） | 否 |
+| `test_live_portal.py` | 真实 Chromium 驱动真实 HTTP 页面，断言服务端实际收到的数据 | **是** |
+
+没有安装 Playwright 浏览器时，端到端测试会自动跳过而不是失败。
 
 ---
 

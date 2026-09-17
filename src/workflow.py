@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from . import browser as browser_module
-from .config import load_config
+from .config import load_config, resolve
 from .report import OrderResult, RunContext, RunReport
 from .state import append as journal_append
 from .state import load_completed
@@ -71,7 +71,7 @@ def run(
 
             context.log(f"[{position}/{len(orders)}] {order_no}: opening")
             try:
-                page.goto(config["base_url"], wait_until="domcontentloaded", timeout=timeout)
+                _ensure_order_list(page, config, selectors, timeout, context)
                 order_flow.open_order_detail(page, order_no, selectors["order_flow"], timeout)
                 order_flow.open_approval_form(page, selectors["order_flow"], timeout)
 
@@ -119,6 +119,20 @@ def run(
         _print_summary(context, report)
         context.log(f"artifacts: {path.parent}")
         session.close()
+
+
+def _ensure_order_list(page, config, selectors, timeout, context) -> None:
+    """Return to the order list, re-running the search when it comes up empty.
+
+    Navigated back to, the portal may show a blank query form rather than the
+    previous results, in which case the order links simply are not there yet.
+    """
+    page.goto(config["base_url"], wait_until="domcontentloaded", timeout=timeout)
+    if resolve(page, selectors["upi_query"]["date_input"], timeout) is None:
+        return
+    upi_query.set_today(page, selectors["upi_query"], timeout)
+    upi_query.run_query(page, selectors["upi_query"], timeout)
+    context.log("search re-run to bring the order list back")
 
 
 def _print_summary(context: RunContext, report: RunReport) -> None:

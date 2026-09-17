@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from ..config import resolve
+from ..config import resolve, resolve_all
 
 ORDER_NUMBER_PATTERN = re.compile(r"^\d{6,}$")
 
@@ -35,7 +35,9 @@ def run_query(page, selectors: dict, timeout_ms: int) -> None:
 
 def collect_order_numbers(page, selectors: dict, timeout_ms: int) -> list[str]:
     """Read the order numbers linked from the 'dispatched orders' column."""
-    locator = resolve(page, selectors["order_links"], timeout_ms)
+    # resolve_all, not resolve: narrowing with .first would silently collect
+    # only the first order number.
+    locator = resolve_all(page, selectors["order_links"], timeout_ms)
     if locator is None:
         return []
 

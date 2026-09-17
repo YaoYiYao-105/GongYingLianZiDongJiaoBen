@@ -13,14 +13,25 @@ import subprocess
 import sys
 import threading
 import tkinter as tk
+from dataclasses import dataclass
 from tkinter import messagebox, ttk
 
 from src import browser as browser_module
 from src.config import load_config
+from src.errors import explain
 from src.paths import runs_dir
 
 WINDOW_TITLE = "UPI 箱码维护助手"
 POLL_INTERVAL_MS = 120
+
+
+@dataclass
+class Outcome:
+    """What the operator is told once a run stops."""
+
+    ok: bool
+    headline: str
+    detail: str = ""
 
 
 class AutomationApp(tk.Tk):
@@ -30,7 +41,7 @@ class AutomationApp(tk.Tk):
         self.geometry("780x540")
         self.minsize(660, 440)
 
-        self._messages: queue.Queue[tuple[str, str]] = queue.Queue()
+        self._messages: queue.Queue[tuple[str, object]] = queue.Queue()
         self._worker: threading.Thread | None = None
         self._prompt_answered = threading.Event()
 
@@ -80,22 +91,45 @@ class AutomationApp(tk.Tk):
         """Move worker-thread output onto the UI thread."""
         try:
             while True:
-                kind, text = self._messages.get_nowait()
+                kind, payload = self._messages.get_nowait()
                 if kind == "log":
-                    self._append(text)
+                    self._append(str(payload))
                 elif kind == "status":
-                    self._status.set(text)
+                    self._status.set(str(payload))
                 elif kind == "prompt":
-                    messagebox.showinfo(WINDOW_TITLE, text)
+                    messagebox.showinfo(WINDOW_TITLE, str(payload))
                     self._prompt_answered.set()
                 elif kind == "done":
-                    self._append("")
-                    self._append(text)
-                    self._set_busy(False)
-                    self._status.set("就绪")
+                    self._finish(payload)  # type: ignore[arg-type]
         except queue.Empty:
             pass
         self.after(POLL_INTERVAL_MS, self._drain_messages)
+
+    def _finish(self, outcome: Outcome) -> None:
+        """Announce the result loudly.
+
+        The intended way to use this tool is to press the button and walk away,
+        so a line of text in the log box is not enough: the window is raised,
+        the title changes so the taskbar shows the state, and a dialog appears.
+        """
+        self._append("")
+        self._append(outcome.headline)
+        if outcome.detail:
+            self._append(outcome.detail)
+
+        self._set_busy(False)
+        self._status.set("完成" if outcome.ok else "需要处理")
+        self.title(f"{WINDOW_TITLE} — {'完成' if outcome.ok else '有失败项'}")
+
+        self.deiconify()
+        self.lift()
+        self.focus_force()
+
+        message = outcome.headline + (f"\n\n{outcome.detail}" if outcome.detail else "")
+        if outcome.ok:
+            messagebox.showinfo(WINDOW_TITLE, message)
+        else:
+            messagebox.showwarning(WINDOW_TITLE, message)
 
     def _prompt(self, message: str) -> None:
         """Block the worker until the operator dismisses a dialog."""
@@ -139,11 +173,13 @@ class AutomationApp(tk.Tk):
                 self._messages.put(("log", "请在浏览器窗口中登录（首次使用需要短信验证）。"))
                 self._prompt("请在打开的浏览器窗口中完成登录，登录成功后点「确定」。")
                 self._messages.put(("log", "登录信息已保存到本机，之后无需重复验证。"))
+                detail = "登录信息已保存在本机，之后无需重复验证。"
             else:
                 self._messages.put(("log", "已检测到有效登录状态，无需重新登录。"))
-            self._messages.put(("done", "登录流程结束。"))
+                detail = "本机已存在有效登录状态。"
+            self._messages.put(("done", Outcome(ok=True, headline="登录流程结束", detail=detail)))
         except Exception as exc:
-            self._messages.put(("done", f"登录失败：{exc}"))
+            self._messages.put(("done", Outcome(ok=False, headline=f"登录失败 — {explain(exc)}")))
         finally:
             if session is not None:
                 session.close()
@@ -168,17 +204,29 @@ class AutomationApp(tk.Tk):
 
             report = run_workflow(commit=commit, log_sink=lambda line: self._messages.put(("log", line)))
             totals = report.totals()
+
+            if report.aborted:
+                self._messages.put(("done", Outcome(
+                    ok=False,
+                    headline=f"运行中止 — {report.abort_reason}",
+                    detail="已完成的进度已经保存，再次运行会从中断处继续。",
+                )))
+                return
+
             summary = (
-                "完成 — 订单 {orders}，成功 {succeeded}，跳过 {skipped}，"
+                "订单 {orders}，成功 {succeeded}，跳过 {skipped}，"
                 "失败 {failed}，填写 {rows_filled} 行".format(**totals)
             )
             if totals["failed"]:
-                summary += "\n有失败项，请点「打开日志目录」查看截图。"
-            self._messages.put(("done", summary))
-        except SystemExit:
-            self._messages.put(("done", "未检测到登录状态，请先点「登录」。"))
+                self._messages.put(("done", Outcome(
+                    ok=False,
+                    headline=f"有 {totals['failed']} 个订单处理失败",
+                    detail=summary + "\n\n请点「打开日志目录」查看失败截图。",
+                )))
+            else:
+                self._messages.put(("done", Outcome(ok=True, headline="全部完成", detail=summary)))
         except Exception as exc:
-            self._messages.put(("done", f"运行出错：{exc}"))
+            self._messages.put(("done", Outcome(ok=False, headline=f"运行出错 — {explain(exc)}")))
 
     def _is_busy(self) -> bool:
         return bool(self._worker and self._worker.is_alive())

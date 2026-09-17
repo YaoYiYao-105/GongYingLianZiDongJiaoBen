@@ -8,6 +8,7 @@ runs unchanged. Only the browser is substituted.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -382,3 +383,85 @@ def test_limit_processes_only_the_requested_number_of_orders(portal_factory):
     report = workflow.run(commit=False, limit=2)
 
     assert [order.order_no for order in report.orders] == ["260917001", "260917002"]
+
+
+# ------------------------------------------------------- abort handling
+def _saved_report(tmp_path) -> dict:
+    files = sorted((tmp_path / "runs").glob("*/report.json"))
+    assert files, "no report.json was written"
+    return json.loads(files[-1].read_text(encoding="utf-8"))
+
+
+def _broken_config() -> dict:
+    broken = json.loads(json.dumps(CONFIG))
+    broken["steps"]["upi_query"]["query_button"] = ["role=button[name='不存在的按钮']"]
+    return broken
+
+
+def test_not_logged_in_is_reported_as_an_abort(portal_factory, monkeypatch, tmp_path):
+    portal_factory(orders=ORDER_NUMBERS, row_count=2)
+    monkeypatch.setattr(browser_module, "looks_logged_out", lambda url, page: True)
+
+    report = workflow.run(commit=False)
+
+    assert report.aborted is True
+    assert report.abort_code == 2
+    assert report.exit_code() == 2
+    assert "未登录" in report.abort_reason
+    assert report.orders == []
+    assert _saved_report(tmp_path)["aborted"] is True
+
+
+def test_a_broken_selector_aborts_instead_of_raising(portal_factory, monkeypatch, tmp_path):
+    portal_factory(orders=["260917001"], row_count=1)
+    monkeypatch.setattr(workflow, "load_config", _broken_config)
+
+    report = workflow.run(commit=False)
+
+    assert report.aborted is True
+    assert report.exit_code() == 1
+    assert "改版" in report.abort_reason
+    assert _saved_report(tmp_path)["abort_reason"] == report.abort_reason
+
+
+def test_a_missing_browser_is_reported_as_an_abort(portal_factory, monkeypatch):
+    portal_factory(orders=["260917001"], row_count=1)
+
+    def no_browser(**kwargs):
+        raise RuntimeError("no usable browser found:\n  msedge: not installed")
+
+    monkeypatch.setattr(browser_module, "launch", no_browser)
+
+    report = workflow.run(commit=False)
+
+    assert report.aborted is True
+    assert "Edge" in report.abort_reason
+
+
+def test_a_keyboard_interrupt_is_reported_as_an_abort(portal_factory, monkeypatch):
+    portal_factory(orders=["260917001"], row_count=1)
+
+    def interrupted(**kwargs):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(browser_module, "launch", interrupted)
+
+    report = workflow.run(commit=False)
+
+    assert report.aborted is True
+    assert report.abort_code == 130
+    assert "中断" in report.abort_reason
+
+
+def test_the_traceback_is_kept_in_the_log_file(portal_factory, monkeypatch, tmp_path):
+    """The operator sees one sentence; the detail must still be recoverable."""
+    portal_factory(orders=["260917001"], row_count=1)
+    monkeypatch.setattr(workflow, "load_config", _broken_config)
+
+    workflow.run(commit=False)
+
+    logs = sorted((tmp_path / "runs").glob("*/run.log"))
+    assert logs, "no run.log was written"
+    content = logs[-1].read_text(encoding="utf-8")
+    assert "Traceback" in content
+    assert "query button not found" in content

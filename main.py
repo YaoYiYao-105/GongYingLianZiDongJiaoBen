@@ -16,7 +16,8 @@ import sys
 from src import browser as browser_module
 from src.calibrate import run as run_calibration
 from src.config import load_config
-from src.paths import browser_profile_dir, config_dir, ensure_dirs
+from src.errors import explain
+from src.paths import browser_profile_dir, ensure_dirs
 
 
 def command_login(notify=input) -> int:
@@ -43,7 +44,9 @@ def command_run(args: argparse.Namespace) -> int:
     from src.workflow import run as run_workflow
 
     report = run_workflow(commit=args.commit, limit=args.limit, only_order=args.order)
-    return 1 if any(order.status == "failed" for order in report.orders) else 0
+    if report.aborted:
+        print(f"\n运行中止：{report.abort_reason}", file=sys.stderr)
+    return report.exit_code()
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -64,14 +67,22 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    if args.command == "login":
-        return command_login()
-    if args.command == "calibrate":
-        run_calibration()
-        return 0
-    return command_run(args)
+    try:
+        if args.command == "login":
+            return command_login()
+        if args.command == "calibrate":
+            run_calibration()
+            return 0
+        return command_run(args)
+    except KeyboardInterrupt:
+        print("\n已中断，已完成的进度保存在 state 目录。", file=sys.stderr)
+        return 130
+    except Exception as exc:
+        # Nothing should reach here, but an operator must never be shown a
+        # traceback for a problem they cannot act on.
+        print(f"\n运行失败：{explain(exc)}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":
-    print(f"config directory: {config_dir()}", file=sys.stderr)
     raise SystemExit(main())

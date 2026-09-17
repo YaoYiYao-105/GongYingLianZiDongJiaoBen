@@ -26,7 +26,18 @@ class RunReport:
     started_at: str = field(default_factory=lambda: datetime.now().isoformat(timespec="seconds"))
     finished_at: str = ""
     dry_run: bool = True
+    #: True when the run stopped early rather than finishing the order list.
+    #: Without this, an aborted run looks identical to a day with no orders.
+    aborted: bool = False
+    abort_reason: str = ""
+    abort_code: int = 1
     orders: list[OrderResult] = field(default_factory=list)
+
+    def exit_code(self) -> int:
+        """0 when everything worked, non-zero otherwise."""
+        if self.aborted:
+            return self.abort_code
+        return 1 if any(order.status == "failed" for order in self.orders) else 0
 
     def totals(self) -> dict[str, int]:
         return {
@@ -56,6 +67,11 @@ class RunContext:
             self._sink(line)
         with self.log_path.open("a", encoding="utf-8") as handle:
             handle.write(line + "\n")
+
+    def log_detail(self, message: str) -> None:
+        """Write diagnostics to the run log only, keeping the console readable."""
+        with self.log_path.open("a", encoding="utf-8") as handle:
+            handle.write(message + "\n")
 
     def screenshot(self, page, label: str) -> Path | None:
         """Capture the page. These images contain live data, never commit them."""

@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import traceback
+
 from . import browser as browser_module
 from .config import load_config, resolve
+from .errors import INTERRUPTED_MESSAGE, NOT_LOGGED_IN_MESSAGE, explain
 from .report import OrderResult, RunContext, RunReport
 from .state import append as journal_append
 from .state import load_completed
@@ -26,19 +29,25 @@ def run(
 
     context = RunContext(sink=log_sink)
     report = RunReport(dry_run=not commit)
-    session = browser_module.launch(headless=False)
+    session = None
 
     def pause() -> None:
         browser_module.human_pause(delay, jitter)
 
     try:
+        # Launched inside the try so a missing browser is reported through the
+        # same channel as every other failure, not as a raw traceback.
+        session = browser_module.launch(headless=False)
         page = session.page
         context.log(f"mode: {'COMMIT' if commit else 'DRY RUN'}")
         page.goto(config["base_url"], wait_until="domcontentloaded", timeout=timeout)
 
         if browser_module.looks_logged_out(page.url, page):
             context.log("not logged in — run `python main.py login` first")
-            raise SystemExit(2)
+            report.aborted = True
+            report.abort_code = 2
+            report.abort_reason = NOT_LOGGED_IN_MESSAGE
+            return report
 
         if config.get("behavior", {}).get("minimize_window", True):
             if browser_module.minimize(session):
@@ -114,11 +123,29 @@ def run(
             )
 
         return report
+    except KeyboardInterrupt:
+        report.aborted = True
+        report.abort_code = 130
+        report.abort_reason = INTERRUPTED_MESSAGE
+        context.log("interrupted by the operator")
+        context.log_detail(traceback.format_exc())
+        return report
+    except Exception as exc:
+        # The operator gets one readable sentence; the traceback goes to the
+        # run log where it is useful and out of the way.
+        report.aborted = True
+        report.abort_reason = explain(exc)
+        # One line on the console; the multi-line original goes to the log.
+        first_line = next((line for line in str(exc).splitlines() if line.strip()), exc.__class__.__name__)
+        context.log(f"aborted: {first_line}")
+        context.log_detail(traceback.format_exc())
+        return report
     finally:
         path = context.save(report)
         _print_summary(context, report)
         context.log(f"artifacts: {path.parent}")
-        session.close()
+        if session is not None:
+            session.close()
 
 
 def _ensure_order_list(page, config, selectors, timeout, context) -> None:
@@ -138,6 +165,10 @@ def _ensure_order_list(page, config, selectors, timeout, context) -> None:
 def _print_summary(context: RunContext, report: RunReport) -> None:
     totals = report.totals()
     context.log("-" * 64)
+    # Stated before the totals, otherwise an aborted run is indistinguishable
+    # from a day with no orders.
+    if report.aborted:
+        context.log(f"ABORTED — {report.abort_reason}")
     context.log(
         "orders={orders}  succeeded={succeeded}  skipped={skipped}  "
         "failed={failed}  rows_filled={rows_filled}".format(**totals)

@@ -1,0 +1,13 @@
+[project]
+name = "supplier-portal-automation"
+version = "0.1.0"
+description = "Desktop automation for repetitive supplier-portal data maintenance"
+requires-python = ">=3.10"
+dependencies = ["playwright>=1.49"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pyinstaller>=6"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

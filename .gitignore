@@ -1,0 +1,24 @@
+# ---- runtime state: NEVER commit ----
+# Browser profile holds live login cookies for the supplier portal.
+.browser-profile/
+# Per-run artifacts contain real order numbers and product data in screenshots.
+runs/
+state/
+
+# ---- python ----
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+*.spec
+.pytest_cache/
+
+# ---- editors / os ----
+.DS_Store
+.idea/
+.vscode/
+*.swp

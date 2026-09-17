@@ -1,0 +1,50 @@
+name: build-windows
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller pytest
+
+      - name: Run tests
+        run: python -m pytest tests -q
+
+      - name: Build executable
+        run: >
+          python -m PyInstaller
+          --noconfirm
+          --windowed
+          --name supplier-portal-automation
+          --collect-all playwright
+          app.py
+
+      - name: Package
+        run: Compress-Archive -Path dist/supplier-portal-automation/* -DestinationPath dist/supplier-portal-automation-windows.zip
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: supplier-portal-automation-windows
+          path: dist/supplier-portal-automation-windows.zip
+          retention-days: 30
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/supplier-portal-automation-windows.zip

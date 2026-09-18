@@ -1,12 +1,37 @@
 [project]
 name = "supplier-portal-automation"
-version = "0.1.0"
+version = "0.1.3"
 description = "Desktop automation for repetitive supplier-portal data maintenance"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.10"
+authors = [
+  { name = "YaoYiYao-105", email = "330238617+YaoYiYao-105@users.noreply.github.com" },
+]
+keywords = ["automation", "playwright", "rpa", "desktop", "tkinter"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: End Users/Desktop",
+  "Operating System :: Microsoft :: Windows",
+  "Operating System :: MacOS",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Topic :: Office/Business",
+]
 dependencies = ["playwright>=1.49"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "pyinstaller>=6"]
+
+[project.urls]
+Homepage = "https://github.com/YaoYiYao-105/YAO-OpenHub"
+Repository = "https://github.com/YaoYiYao-105/YAO-OpenHub"
+Changelog = "https://github.com/YaoYiYao-105/YAO-OpenHub/blob/main/CHANGELOG.md"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

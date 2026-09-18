@@ -1,0 +1,15 @@
+# One canonical line ending for the repository, converted on checkout.
+* text=auto eol=lf
+
+# Windows batch files MUST keep CRLF, otherwise cmd.exe mis-parses them.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binary assets that must never be line-ending converted.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.zip binary
+*.exe binary

@@ -225,24 +225,30 @@ git tag v0.1.0 && git push origin v0.1.0
 
 ```bash
 .venv/bin/pip install pytest
-.venv/bin/python -m pytest tests -q
-```
-
-```bash
-.venv/bin/pip install pytest
 .venv/bin/python -m playwright install chromium   # 仅端到端测试需要
 .venv/bin/python -m pytest tests -q
 ```
 
-测试分三层：
+共 57 个用例。除最后一组外都不需要浏览器，但所有用例都只跑在本机，不访问外网：
 
-| 文件 | 覆盖内容 | 是否需要浏览器 |
-| --- | --- | --- |
-| `test_config.py` / `test_state.py` / `test_report.py` / `test_box_code.py` | 定位表达式解析、行遍历、断点续跑、汇总统计 | 否，用假的 Playwright 对象 |
-| `test_workflow.py` | 完整编排流程（状态机替身） | 否 |
-| `test_live_portal.py` | 真实 Chromium 驱动真实 HTTP 页面，断言服务端实际收到的数据 | **是** |
+| 文件 | 用例 | 覆盖内容 | 需要浏览器 |
+| --- | --- | --- | --- |
+| `test_config.py` | 9 | 定位表达式解析、角色参数校验 | 否 |
+| `test_box_code.py` | 6 | 表格逐行遍历、跳过与失败统计 | 否 |
+| `test_workflow.py` | 12 | 完整编排流程、中止与退出码（状态机替身） | 否 |
+| `test_errors.py` | 11 | 异常翻译成可读提示 | 否 |
+| `test_gui.py` | 8 | 界面状态流转与结束通知 | 否 |
+| `test_report.py` | 5 | 汇总统计与退出码 | 否 |
+| `test_state.py` | 3 | 断点续跑日志 | 否 |
+| `test_live_portal.py` | 3 | 真实 Chromium 驱动真实 HTTP 页面，断言服务端实际收到的数据 | **是** |
 
 没有安装 Playwright 浏览器时，端到端测试会自动跳过而不是失败。
+
+---
+
+## 更新日志
+
+变更记录见 [CHANGELOG.md](CHANGELOG.md)。
 
 ---
 

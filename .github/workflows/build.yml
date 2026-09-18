@@ -30,7 +30,8 @@ jobs:
         run: python -m playwright install chromium
 
       - name: Run tests
-        run: python -m pytest tests -q
+        # -ra so a skip always states its reason instead of hiding in the dots.
+        run: python -m pytest tests -q -ra
 
       - name: Build executable
         run: >

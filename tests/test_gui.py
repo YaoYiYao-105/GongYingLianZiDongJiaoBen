@@ -6,17 +6,49 @@ told" is real behaviour worth pinning down rather than trusting by eye.
 
 from __future__ import annotations
 
+import os
+import sys
+import time
+import tkinter
+
 import pytest
 
 from src import gui
 
 
+def _open_window(attempts: int = 3):
+    """Open a Tk root, tolerating the transient failures Windows CI shows.
+
+    Destroying one Tk root and immediately creating the next occasionally fails
+    on Windows, so a short back-off is enough to let the previous one go.
+    """
+    last: Exception | None = None
+    for attempt in range(attempts):
+        try:
+            return gui.AutomationApp()
+        except tkinter.TclError as exc:
+            last = exc
+            time.sleep(0.25 * (attempt + 1))
+    raise last
+
+
+def _display_is_expected() -> bool:
+    """False only on a genuinely headless Linux box."""
+    if sys.platform.startswith("linux"):
+        return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+    return True
+
+
 @pytest.fixture
 def app(monkeypatch):
     try:
-        instance = gui.AutomationApp()
-    except Exception as exc:  # no display available
-        pytest.skip(f"tkinter cannot open a window here: {exc}")
+        instance = _open_window()
+    except Exception as exc:
+        if not _display_is_expected():
+            pytest.skip(f"tkinter cannot open a window here: {exc}")
+        # A display is expected, so nothing is hidden here: quietly skipping
+        # would mask GUI breakage on the very platforms the operators use.
+        pytest.fail(f"tkinter could not open a window: {exc}")
 
     shown: list[tuple[str, str]] = []
     monkeypatch.setattr(

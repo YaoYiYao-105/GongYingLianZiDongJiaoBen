@@ -12,20 +12,32 @@ A supplier portal requires, every single day, the same sequence of clicks:
 The whole thing takes five or six minutes. It is not slow — it is *tedious*,
 which is exactly the kind of work software should absorb.
 
-## Why not drive the underlying APIs directly?
+## Two drivers, and why the second one exists
 
-Replaying the portal's XHR calls would be far faster: thousands of clicks
-collapse into a handful of HTTP requests. It was deliberately rejected.
+The first version clicked, and only clicked. Replaying the portal's own requests
+was rejected up front as poor value for money: the job takes five minutes, the
+signing scheme was unknown, and an undocumented payload that writes *badly*
+corrupts production data in a way a failed locator never will.
 
-- The total work is ~5 minutes. Compressing it to 30 seconds does not pay for
-  the reverse-engineering effort.
-- The real cost of API replay is long-term: request signing, rotating tokens
-  and undocumented payloads break silently and break *badly* — a malformed
-  write can corrupt production data rather than simply failing a locator.
-- A visible browser performing the same steps a human would is also far less
-  likely to trip anti-automation defences.
+That reasoning was sound but the estimate behind it was wrong. The signing
+scheme turned out to be short and entirely derivable from what the page already
+does, so the reverse engineering was an afternoon rather than a project. The
+driver in `src/api.py` now replays those requests directly.
 
-The chosen approach is the smallest thing that works: automate the clicks.
+What made the change safe enough to make — and this is the part that matters —
+was not the speed:
+
+- **Only orders the portal itself calls unfinished are touched.** The server
+  enforces the same rule, so a write against a stale order is refused rather
+  than applied.
+- **Every save is read back.** A success code proves the request was accepted,
+  not that the rows landed. The driver re-fetches the order and checks each row
+  individually; mismatches are failures, not assumptions.
+- **Dry run is still the default**, in both drivers.
+
+The click driver stays in `src/workflow.py` (`run_browser`) as a fallback. It
+is the slower, more visible path, and it is the one that keeps working if the
+endpoints are ever withdrawn.
 
 ## Layering
 
@@ -38,28 +50,26 @@ describes *where* to do it.
                     │  main.py    (CLI)             │
                     │  src/gui.py (double-click app)│
                     └───────────────┬──────────────┘
-                                    │
+                                    │  mode = api | browser
                     ┌───────────────▼──────────────┐
                     │  src/workflow.py             │
-                    │  orchestration + reporting   │
-                    └───┬──────────┬──────────┬────┘
-                        │          │          │
-        ┌───────────────▼──┐  ┌────▼───────┐  ┌▼──────────────┐
-        │ steps/upi_query  │  │ steps/     │  │ steps/        │
-        │ date+search+list │  │ order_flow │  │ box_code      │
-        └──────────────────┘  └────────────┘  └───────────────┘
-                        │          │          │
-                        └──────────┴──────┬───┘
-                                          ▼
-                              ┌───────────────────────┐
-                              │ src/config.py         │
-                              │ the only locator home │
-                              └───────────────────────┘
+                    │  picks a driver              │
+                    └───┬──────────────────────┬───┘
+                        │                      │
+        ┌───────────────▼──────────┐  ┌────────▼─────────────────┐
+        │  src/api_workflow.py     │  │  steps/upi_query         │
+        │  query → read → save →   │  │  steps/order_flow        │
+        │  read back and verify    │  │  steps/box_code          │
+        │      └── src/api.py      │  │        │                 │
+        │          signing+bodies  │  │        ▼                 │
+        └──────────────────────────┘  │  src/config.py           │
+                                      │  the only locator home   │
+                                      └──────────────────────────┘
 
-  src/browser.py   persistent profile, channel detection, window state
-  src/state.py     JSONL journal for resuming interrupted runs
-  src/report.py    per-run folders, screenshots, summary
-  src/calibrate.py one-off capture of the real page structure
+  src/browser.py    persistent profile, channel detection, window state
+  src/state.py      JSONL journal for resuming interrupted runs
+  src/report.py     per-run folders, screenshots, summary
+  src/calibrate.py  one-off capture of the real page structure
 ```
 
 ## Selector expressions
@@ -105,14 +115,33 @@ Writing to a production back office is the risky part, so the defaults are
 deliberately biased toward doing nothing:
 
 - **Dry run by default.** `run` inspects and reports; only `--commit` writes.
-- **Idempotent.** A row already holding `1` is skipped, so re-running after an
-  interruption cannot double-submit.
+- **Idempotent.** The click driver skips rows already holding `1`. The API
+  driver only touches orders the portal still reports as unexecuted, and a
+  written order stops being one — so a re-run cannot double-submit either way.
 - **Fail visibly, not creatively.** If a locator cannot be found the row is
   marked failed and the run moves on. Nothing is clicked "just in case".
-- **Partial failure never submits.** The save button is only pressed when every
-  row in the table succeeded.
-- **Resumable.** Completed orders are journalled, so an interrupted run picks
-  up where it stopped.
+- **Partial failure never submits.** The click driver only presses save when
+  every row succeeded. The API driver sends one body per order, which the server
+  applies as a unit, and then re-reads the order and checks every row against
+  what it meant to write.
+- **Resumable.** Completed orders are journalled, so an interrupted run picks up
+  where it stopped. Dry runs are deliberately *not* journalled: recording them
+  would make the next real run skip work that was never done.
+
+## Sessions
+
+The endpoints need the same session the browser holds, and that session lives in
+the browser profile. `src/api_workflow.py` therefore reads it once, caches it
+next to the other run data, and reuses it until the server rejects it — at which
+point it opens the profile, reads it again, and carries on. The common run
+touches no browser at all.
+
+Two properties make this acceptable rather than sloppy:
+
+- The cache holds nothing the profile does not already hold, is written `0600`,
+  and lives outside the repository like every other artifact.
+- The API calls are plain HTTPS and carry no cookies, so the cached values are
+  the whole of what crosses the wire.
 
 ## Browser handling
 

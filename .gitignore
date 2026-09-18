@@ -4,6 +4,8 @@
 # Per-run artifacts contain real order numbers and product data in screenshots.
 runs/
 state/
+# Whatever SUPPLIER_AUTOMATION_HOME points at, a cached session must never be committed.
+session.json
 
 # ---- python ----
 __pycache__/

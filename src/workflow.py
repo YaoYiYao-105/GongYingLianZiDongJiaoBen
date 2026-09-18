@@ -1,9 +1,16 @@
-"""Orchestration: query the day's orders, then clear each one's box codes."""
+"""Orchestration: query the day's orders, then clear each one's box codes.
+
+Two drivers sit behind :func:`run`. The endpoint one (:mod:`src.api_workflow`)
+asks the portal's own JSON API and is the default; the click-driven one below
+opens the four pages and types into the table, and stays as a fallback for the
+day the endpoints stop cooperating.
+"""
 
 from __future__ import annotations
 
 import traceback
 
+from . import api_workflow
 from . import browser as browser_module
 from .config import load_config, resolve
 from .errors import INTERRUPTED_MESSAGE, NOT_LOGGED_IN_MESSAGE, explain
@@ -13,7 +20,32 @@ from .state import load_completed
 from .steps import box_code, order_flow, upi_query
 
 
+#: Endpoint-driven runs finish in seconds, stay silent and check their own
+#: writes, so they are what the packaged application does by default.
+DEFAULT_MODE = "api"
+
+
 def run(
+    *,
+    commit: bool = False,
+    limit: int | None = None,
+    only_order: str | None = None,
+    log_sink=None,
+    mode: str = DEFAULT_MODE,
+) -> RunReport:
+    """Process every order still waiting for UPI maintenance.
+
+    ``mode`` picks how the portal is driven: ``"api"`` for its JSON endpoints,
+    ``"browser"`` to click through the pages.
+    """
+    if mode == "api":
+        return api_workflow.run(
+            commit=commit, limit=limit, only_order=only_order, log_sink=log_sink
+        )
+    return run_browser(commit=commit, limit=limit, only_order=only_order, log_sink=log_sink)
+
+
+def run_browser(
     *,
     commit: bool = False,
     limit: int | None = None,

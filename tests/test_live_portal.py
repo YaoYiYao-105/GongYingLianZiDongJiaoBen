@@ -97,8 +97,18 @@ def live_portal(tmp_path, monkeypatch):
         yield state
 
 
+def run(**kwargs):
+    """These tests exercise the click-driven driver.
+
+    The endpoint-driven one is covered by tests/test_api_workflow.py and has its
+    own way of standing in for the portal, so the mode is pinned here rather
+    than left to the default.
+    """
+    return workflow.run(mode="browser", **kwargs)
+
+
 def test_commit_walks_the_real_pages_and_saves_every_row(live_portal):
-    report = workflow.run(commit=True)
+    report = run(commit=True)
 
     assert [order.status for order in report.orders] == ["succeeded", "succeeded"]
     assert _wait(lambda: len(live_portal.saved) == len(ORDERS)), "orders were not submitted"
@@ -109,7 +119,7 @@ def test_commit_walks_the_real_pages_and_saves_every_row(live_portal):
 
 
 def test_dry_run_navigates_but_never_writes(live_portal):
-    report = workflow.run(commit=False)
+    report = run(commit=False)
 
     assert report.dry_run is True
     assert [order.status for order in report.orders] == ["succeeded", "succeeded"]
@@ -123,10 +133,10 @@ def test_dry_run_navigates_but_never_writes(live_portal):
 
 
 def test_second_run_skips_orders_already_completed(live_portal):
-    workflow.run(commit=True)
+    run(commit=True)
     first_pass = len(live_portal.saved)
 
-    second = workflow.run(commit=True)
+    second = run(commit=True)
 
     assert [order.status for order in second.orders] == ["skipped", "skipped"]
     time.sleep(0.5)

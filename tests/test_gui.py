@@ -154,3 +154,29 @@ def test_a_question_the_operator_cannot_see_still_gets_answered(app):
     app._drain_messages()
 
     assert app._dialogs and "完成登录" in app._dialogs[0][1]
+
+
+# ------------------------------------------------------------- session caching
+def test_a_successful_login_caches_the_session(app, monkeypatch):
+    """Otherwise every maintenance run would have to open a browser again."""
+    stored: list = []
+    monkeypatch.setattr(gui.api_workflow, "read_credentials", lambda page: "creds")
+    monkeypatch.setattr(gui.api_workflow, "store", lambda credentials: stored.append(credentials))
+
+    app._remember_session(object())
+
+    assert stored == ["creds"]
+    assert "缓存" in app._messages.get_nowait()[1]
+
+
+def test_a_failed_capture_still_reports_a_successful_login(app, monkeypatch):
+    """The page may need a moment longer to write its storage; that is not a
+    login failure, and the run path reads it again anyway."""
+    def explode(page):
+        raise RuntimeError("nothing in storage yet")
+
+    monkeypatch.setattr(gui.api_workflow, "read_credentials", explode)
+
+    app._remember_session(object())  # must not raise
+
+    assert "暂未缓存" in app._messages.get_nowait()[1]

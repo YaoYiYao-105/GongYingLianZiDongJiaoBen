@@ -16,6 +16,7 @@ import tkinter as tk
 from dataclasses import dataclass
 from tkinter import messagebox, ttk
 
+from src import api_workflow
 from src import browser as browser_module
 from src.config import load_config
 from src.errors import explain
@@ -197,12 +198,26 @@ class AutomationApp(tk.Tk):
             else:
                 self._messages.put(("log", "已检测到有效登录状态，无需重新登录。"))
                 detail = "本机已存在有效登录状态。"
+            self._remember_session(page)
             self._messages.put(("done", Outcome(ok=True, headline="登录流程结束", detail=detail)))
         except Exception as exc:
             self._messages.put(("done", Outcome(ok=False, headline=f"登录失败 — {explain(exc)}")))
         finally:
             if session is not None:
                 session.close()
+
+    def _remember_session(self, page) -> None:
+        """Cache the request signature, so maintenance needs no window.
+
+        Failing here is not a login failure: the run path reads the session out
+        of the profile again when it finds the cache missing.
+        """
+        try:
+            api_workflow.store(api_workflow.read_credentials(page))
+        except Exception as exc:
+            self._messages.put(("log", f"暂未缓存登录状态（{exc}），首次维护时会再读取一次。"))
+        else:
+            self._messages.put(("log", "登录状态已缓存，维护时不再需要打开浏览器。"))
 
     def _start(self, *, commit: bool) -> None:
         if self._is_busy():

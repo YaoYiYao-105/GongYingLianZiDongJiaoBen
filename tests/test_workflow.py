@@ -315,10 +315,18 @@ def portal_factory(tmp_path, monkeypatch):
 
 
 # --------------------------------------------------------------------- tests
+def run(**kwargs):
+    """These tests exercise the click-driven driver.
+
+    The endpoint-driven one is covered by tests/test_api_workflow.py and has its
+    own way of standing in for the portal, so the mode is pinned here rather
+    than left to the default.
+    """
+    return workflow.run(mode="browser", **kwargs)
 def test_dry_run_lists_the_work_without_writing_anything(portal_factory):
     portal = portal_factory(orders=ORDER_NUMBERS, row_count=3)
 
-    report = workflow.run(commit=False)
+    report = run(commit=False)
 
     assert report.dry_run is True
     assert [order.status for order in report.orders] == ["succeeded", "succeeded"]
@@ -330,7 +338,7 @@ def test_dry_run_lists_the_work_without_writing_anything(portal_factory):
 def test_commit_sets_every_row_to_one(portal_factory):
     portal = portal_factory(orders=ORDER_NUMBERS, row_count=3)
 
-    report = workflow.run(commit=True)
+    report = run(commit=True)
 
     assert report.totals()["rows_filled"] == 6
     assert all(value == "1" for values in portal.rows.values() for value in values)
@@ -340,10 +348,10 @@ def test_commit_sets_every_row_to_one(portal_factory):
 
 def test_a_second_run_skips_orders_that_already_succeeded(portal_factory):
     portal = portal_factory(orders=ORDER_NUMBERS, row_count=2)
-    workflow.run(commit=True)
+    run(commit=True)
     portal.fill_calls.clear()
 
-    second = workflow.run(commit=True)
+    second = run(commit=True)
 
     assert [order.status for order in second.orders] == ["skipped", "skipped"]
     assert portal.fill_calls == [], "completed orders must not be touched again"
@@ -352,7 +360,7 @@ def test_a_second_run_skips_orders_that_already_succeeded(portal_factory):
 def test_rows_already_holding_one_are_left_alone(portal_factory):
     portal = portal_factory(orders=["260917001"], row_count=3, prefilled=3)
 
-    report = workflow.run(commit=True)
+    report = run(commit=True)
 
     assert report.orders[0].rows_skipped == 3
     assert portal.fill_calls == []
@@ -361,7 +369,7 @@ def test_rows_already_holding_one_are_left_alone(portal_factory):
 def test_a_failed_row_is_reported_and_the_table_is_not_submitted(portal_factory):
     portal = portal_factory(orders=["260917001"], row_count=3, missing_inputs={1})
 
-    report = workflow.run(commit=True)
+    report = run(commit=True)
 
     result = report.orders[0]
     assert result.status == "failed"
@@ -372,7 +380,7 @@ def test_a_failed_row_is_reported_and_the_table_is_not_submitted(portal_factory)
 def test_all_orders_are_collected_not_just_the_first(portal_factory):
     portal_factory(orders=["260917001", "260917002", "260917003"], row_count=1)
 
-    report = workflow.run(commit=False)
+    report = run(commit=False)
 
     assert len(report.orders) == 3, "only the first order link was collected"
 
@@ -380,7 +388,7 @@ def test_all_orders_are_collected_not_just_the_first(portal_factory):
 def test_limit_processes_only_the_requested_number_of_orders(portal_factory):
     portal_factory(orders=["260917001", "260917002", "260917003"], row_count=1)
 
-    report = workflow.run(commit=False, limit=2)
+    report = run(commit=False, limit=2)
 
     assert [order.order_no for order in report.orders] == ["260917001", "260917002"]
 
@@ -402,7 +410,7 @@ def test_not_logged_in_is_reported_as_an_abort(portal_factory, monkeypatch, tmp_
     portal_factory(orders=ORDER_NUMBERS, row_count=2)
     monkeypatch.setattr(browser_module, "looks_logged_out", lambda url, page: True)
 
-    report = workflow.run(commit=False)
+    report = run(commit=False)
 
     assert report.aborted is True
     assert report.abort_code == 2
@@ -416,7 +424,7 @@ def test_a_broken_selector_aborts_instead_of_raising(portal_factory, monkeypatch
     portal_factory(orders=["260917001"], row_count=1)
     monkeypatch.setattr(workflow, "load_config", _broken_config)
 
-    report = workflow.run(commit=False)
+    report = run(commit=False)
 
     assert report.aborted is True
     assert report.exit_code() == 1
@@ -432,7 +440,7 @@ def test_a_missing_browser_is_reported_as_an_abort(portal_factory, monkeypatch):
 
     monkeypatch.setattr(browser_module, "launch", no_browser)
 
-    report = workflow.run(commit=False)
+    report = run(commit=False)
 
     assert report.aborted is True
     assert "Edge" in report.abort_reason
@@ -446,7 +454,7 @@ def test_a_keyboard_interrupt_is_reported_as_an_abort(portal_factory, monkeypatc
 
     monkeypatch.setattr(browser_module, "launch", interrupted)
 
-    report = workflow.run(commit=False)
+    report = run(commit=False)
 
     assert report.aborted is True
     assert report.abort_code == 130
@@ -458,7 +466,7 @@ def test_the_traceback_is_kept_in_the_log_file(portal_factory, monkeypatch, tmp_
     portal_factory(orders=["260917001"], row_count=1)
     monkeypatch.setattr(workflow, "load_config", _broken_config)
 
-    workflow.run(commit=False)
+    run(commit=False)
 
     logs = sorted((tmp_path / "runs").glob("*/run.log"))
     assert logs, "no run.log was written"

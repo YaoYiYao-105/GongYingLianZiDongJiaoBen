@@ -72,7 +72,10 @@ def main() -> int:
             print(f"mode:         {'COMMIT' if args.commit else 'DRY RUN'}")
             print("=" * 68)
 
-            report = run(commit=args.commit)
+            # The mock portal serves pages, not JSON, so this demonstrates the
+            # click-driven driver. The endpoint-driven one is what the packaged
+            # application uses against the real portal.
+            report = run(commit=args.commit, mode="browser")
 
             print("=" * 68)
             print("mock portal state after the run:")
